@@ -1,0 +1,19 @@
+# Environnements virtuels Python
+env/
+venv/
+.venv/
+ENV/
+
+# Fichiers de configuration & variables d'environnement
+.env
+*.env
+
+# Cache Python et fichiers compilés
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Base de données locale & Fichiers médias (téléversés)
+db.sqlite3
+media/
