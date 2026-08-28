@@ -75,3 +75,39 @@ class LoginView(APIView):
     return Response(
         {"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED
     )
+
+
+
+
+  def post(self,request):
+
+    serializer = DocumentUploadSerializer(data = request.data)
+
+    if serializer.is_valid():
+
+      file = serializer.validated_data['file']
+      title= serializer.validated_data.get('title')
+
+      document = Document.objects.create(
+
+        user = request.user,
+        file = file,
+        title = title,
+        file_size =file.size,
+        file_type = file.name.split('.')['-1'].lower()
+
+      )
+
+      try :
+        processor = DocumentProcessor()
+        processor.document_process(document)
+
+        return Response(DocumentSerializer(document).data,status=status.HTTP_201_CREATED)
+      except Exception as e:
+
+        document.delete()
+        logger.error(f"failed to processor {e}")
+
+        return Response({'error':"erreur lors de l'enregistrement"},status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+  
+   
