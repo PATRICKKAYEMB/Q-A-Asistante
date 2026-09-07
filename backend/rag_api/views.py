@@ -1,4 +1,7 @@
 import logging
+import os
+import shutil
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render
@@ -77,7 +80,7 @@ class LoginView(APIView):
     )
 
 
-
+class DocumentCreateView(APIView):
 
   def post(self,request):
 
@@ -110,4 +113,34 @@ class LoginView(APIView):
 
         return Response({'error':"erreur lors de l'enregistrement"},status=status.HTTP_500_INTERNAL_SERVER_ERROR)
   
-   
+class DocumentListView(ListAPIView):
+    serializer_class = DocumentSerializer
+    def get_queryset(self):
+      return Document.objects.filter(user= self.request.user)
+
+class DocumentDeleteView(APIView):
+
+  def delete(self,request,document_id):
+
+    document = get_object_or_404(Document,user=self.request.user,id=document_id)
+
+    try:
+
+      if document.vector_store_id:
+
+        vectot_store_path = os.path.join(settings.CHROMA_DB,document.vector_store_id)
+
+        if os.path.exists(vectot_store_path):
+          shutil.rmtree(vectot_store_path)
+
+          document.delete()
+
+          return Response(status=status.HTTP_204_NO_CONTENT)
+
+    except Exception as e:
+
+      logger.error(f"Error deleting document: {str(e)}")
+      return Response( {'error': 'Failed to delete document'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+    
