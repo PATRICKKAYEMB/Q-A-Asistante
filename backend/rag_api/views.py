@@ -15,6 +15,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Conversation, Document
 from .rag_service.document_processor import DocumentProcessor
 from .rag_service.service import AIServices
+from .models import Conversation
 from .serializers import (
     ConversationSerializer,
     DocumentSerializer,
@@ -143,4 +144,45 @@ class DocumentDeleteView(APIView):
       return Response( {'error': 'Failed to delete document'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-    
+class QAView(APIView):
+
+    def post(self, request):
+        serializer = QuestionSerializer(data=request.data)
+
+        if serializer.is_valid():
+            document_id = serializer.validated_data['document_id']
+            question = serializer.validated_data['question']
+
+            
+            document = get_object_or_404(
+                Document,
+                user=request.user,
+                id=document_id,
+                processed=True
+            )
+
+            try:
+                ai_service = AIServices()
+                results = ai_service.answer_question(document, question)
+
+                qa_conversation = Conversation.objects.create(
+                    document=document,
+                    user=request.user,
+                    question=question,
+                    response=results['answer'],
+                    response_time=results.get('response_time', 0.0)
+                )
+
+                return Response(
+                    ConversationSerializer(qa_conversation).data,
+                    status=status.HTTP_200_OK
+                )
+
+            except Exception as e:
+                logger.error(f'Error generating answer: {str(e)}')
+                return Response(
+                    {'error': 'Failed generating answer'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
