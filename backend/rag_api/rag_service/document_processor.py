@@ -21,7 +21,7 @@ class DocumentProcessor:
   def __init__(self):
     self.embedding = GoogleGenerativeAIEmbeddings(
         google_api_key=os.getenv("GOOGLE_API_KEY"),
-        model="models/embedding-001",  # Spécifier le modèle d'embedding
+        model="models/gemini-embedding-001",
     )
 
    

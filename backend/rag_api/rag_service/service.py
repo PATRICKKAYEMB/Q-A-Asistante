@@ -5,7 +5,6 @@ from typing import Dict, List
 
 from django.conf import settings
 from dotenv import load_dotenv
-from langchain.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -20,9 +19,13 @@ logger = logging.getLogger(__name__)
 class AIServices:
 
   def __init__(self):
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+      raise ValueError("GOOGLE_API_KEY is missing. Configure it in your environment or .env file.")
+
     self.llm = ChatGoogleGenerativeAI(
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-1.5-flash",  
+        google_api_key=api_key,
+        model="gemini-2.5-flash",
         temperature=0,
     )
 
@@ -31,7 +34,7 @@ class AIServices:
     self.prompt_template = PromptTemplate(
         input_variables=["context", "question"],
         template="""
-                You are an AI assistant that answers questions based only on the 
+                You are an AI assistant that answers questions based only on the
                 context from the document:
 
                 Context:
@@ -61,22 +64,19 @@ class AIServices:
           document.vector_store_id
       )
 
-      # Création de la chaîne RAG RetrievalQA
-      qa_chain = RetrievalQA.from_chain_type(
-          llm=self.llm,
-          chain_type="stuff",
-          retriever=vector_store.as_retriever(search_kwargs={"k": 5}),
-          chain_type_kwargs={"prompt": self.prompt_template},
-          return_source_documents=True,
-      )
+      retriever = vector_store.as_retriever(search_kwargs={"k": 5})
+      relevant_docs = retriever.invoke(question)
+      context = "\n\n".join(doc.page_content for doc in relevant_docs)
 
-      result = qa_chain({"query": question})
+      prompt = self.prompt_template.format(context=context, question=question)
+      answer = self.llm.invoke(prompt)
+      answer_text = getattr(answer, "content", str(answer)).strip()
 
       processing_time = round(time.time() - start_time, 2)
 
       response = {
-          "answer": result["result"],
-          "source_documents": result.get("source_documents", []),
+          "answer": answer_text,
+          "source_documents": relevant_docs,
           "processing_time": processing_time,
       }
 

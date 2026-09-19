@@ -39,12 +39,13 @@ class RegisterView(APIView):
       user = serializer.save()
       refresh = RefreshToken.for_user(user)
 
+      access_token = refresh.access_token
       return Response(
           {
               "user": UserSerializer(user).data,
               "token": {
                   "refresh": str(refresh),
-                  "access": str(refresh.access),
+                  "access": str(access_token),
               },
           },
           status=status.HTTP_201_CREATED,
@@ -65,12 +66,13 @@ class LoginView(APIView):
 
       if user:
         refresh = RefreshToken.for_user(user)
+        access_token = refresh.access_token
         return Response(
             {
                 "user": UserSerializer(user).data,
                 "token": {
                     "refresh": str(refresh),
-                    "access": str(refresh.access),
+                    "access": str(access_token),
                 },
             },
             status=status.HTTP_200_OK,
@@ -82,69 +84,78 @@ class LoginView(APIView):
 
 
 class DocumentCreateView(APIView):
+  permission_classes = [permissions.IsAuthenticated]
 
-  def post(self,request):
-
-    serializer = DocumentUploadSerializer(data = request.data)
+  def post(self, request):
+    serializer = DocumentUploadSerializer(data=request.data)
 
     if serializer.is_valid():
-
       file = serializer.validated_data['file']
-      title= serializer.validated_data.get('title')
+      title = serializer.validated_data.get('title')
+      file_type = file.name.split('.')[-1].lower()
 
       document = Document.objects.create(
-
-        user = request.user,
-        file = file,
-        title = title,
-        file_size =file.size,
-        file_type = file.name.split('.')['-1'].lower()
-
+          user=request.user,
+          file=file,
+          title=title,
+          file_size=file.size,
+          file_type=file_type,
       )
 
-      try :
+      try:
         processor = DocumentProcessor()
         processor.document_process(document)
-
-        return Response(DocumentSerializer(document).data,status=status.HTTP_201_CREATED)
+        return Response(
+            DocumentSerializer(document).data,
+            status=status.HTTP_201_CREATED,
+        )
       except Exception as e:
-
         document.delete()
         logger.error(f"failed to processor {e}")
+        return Response(
+            {'error': 'erreur lors de l\'enregistrement'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
-        return Response({'error':"erreur lors de l'enregistrement"},status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
   
 class DocumentListView(ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = DocumentSerializer
+
     def get_queryset(self):
-      return Document.objects.filter(user= self.request.user)
+        return Document.objects.filter(user=self.request.user)
+
 
 class DocumentDeleteView(APIView):
+  permission_classes = [permissions.IsAuthenticated]
 
-  def delete(self,request,document_id):
-
-    document = get_object_or_404(Document,user=self.request.user,id=document_id)
+  def delete(self, request, document_id):
+    document = get_object_or_404(Document, user=self.request.user, id=document_id)
 
     try:
-
       if document.vector_store_id:
+        vector_store_path = os.path.join(
+            settings.CHROMA_PERSIST_DIRECTORY,
+            document.vector_store_id,
+        )
 
-        vectot_store_path = os.path.join(settings.CHROMA_DB,document.vector_store_id)
+        if os.path.exists(vector_store_path):
+          shutil.rmtree(vector_store_path)
 
-        if os.path.exists(vectot_store_path):
-          shutil.rmtree(vectot_store_path)
-
-          document.delete()
-
-          return Response(status=status.HTTP_204_NO_CONTENT)
+      document.delete()
+      return Response(status=status.HTTP_204_NO_CONTENT)
 
     except Exception as e:
-
       logger.error(f"Error deleting document: {str(e)}")
-      return Response( {'error': 'Failed to delete document'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+      return Response(
+          {'error': 'Failed to delete document'},
+          status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+      )
 
 
 class QAView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = QuestionSerializer(data=request.data)
@@ -153,12 +164,11 @@ class QAView(APIView):
             document_id = serializer.validated_data['document_id']
             question = serializer.validated_data['question']
 
-            
             document = get_object_or_404(
                 Document,
                 user=request.user,
                 id=document_id,
-                processed=True
+                processed=True,
             )
 
             try:
@@ -170,19 +180,19 @@ class QAView(APIView):
                     user=request.user,
                     question=question,
                     response=results['answer'],
-                    response_time=results.get('response_time', 0.0)
+                    response_time=results.get('response_time', 0.0),
                 )
 
                 return Response(
                     ConversationSerializer(qa_conversation).data,
-                    status=status.HTTP_200_OK
+                    status=status.HTTP_200_OK,
                 )
 
             except Exception as e:
                 logger.error(f'Error generating answer: {str(e)}')
                 return Response(
                     {'error': 'Failed generating answer'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
