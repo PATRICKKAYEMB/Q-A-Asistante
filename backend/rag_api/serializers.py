@@ -3,8 +3,13 @@ from django.contrib.auth.models import User
 from .models import Document, Conversation
 
 
-class UserRegistrationSerializer(serializers.ModelSerializer):  # CORRIGÉ : Nom de la classe (Registration)
-    password = serializers.CharField(write_only=True, min_length=8)  # CORRIGÉ : min_length (et non mon_length)
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True)
 
     class Meta:
@@ -30,16 +35,22 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class DocumentUploadSerializer(serializers.ModelSerializer):
+    file = serializers.FileField(
+        use_url=False,
+        style={'type': 'file'},
+    )
+    title = serializers.CharField(max_length=255)
+
     class Meta:
         model = Document
-        fields = ('file', 'title')  
+        fields = ('file', 'title')
 
    
     def validate_file(self, value):
         if value.size > 50 * 1024 * 1024:
             raise serializers.ValidationError("File size cannot exceed 50MB")
 
-        allowed_extensions = ['.txt', '.pdf', '.docx'] 
+        allowed_extensions = ['.txt', '.pdf', '.docx']
         file_extension = '.' + value.name.split('.')[-1].lower()
 
         if file_extension not in allowed_extensions:

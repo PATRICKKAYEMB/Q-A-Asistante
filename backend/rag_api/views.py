@@ -5,9 +5,11 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render
+from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.generics import CreateAPIView, ListAPIView
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -21,6 +23,7 @@ from .serializers import (
     DocumentSerializer,
     DocumentUploadSerializer,
     HistorySerializer,
+    LoginSerializer,
     QuestionSerializer,
     UserRegistrationSerializer,
     UserSerializer,
@@ -31,7 +34,9 @@ logger = logging.getLogger(__name__)
 
 class RegisterView(APIView):
   permission_classes = [permissions.AllowAny]
+  serializer_class = UserRegistrationSerializer
 
+  @extend_schema(request=UserRegistrationSerializer)
   def post(self, request):
     serializer = UserRegistrationSerializer(data=request.data)
 
@@ -56,27 +61,32 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
   permission_classes = [permissions.AllowAny]
+  serializer_class = LoginSerializer
 
+  @extend_schema(request=LoginSerializer)
   def post(self, request):
-    username = request.data.get("username")
-    password = request.data.get("password")
+    serializer = LoginSerializer(data=request.data)
+    if not serializer.is_valid():
+      return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    if username and password:
-      user = authenticate(username=username, password=password)
+    email = serializer.validated_data.get('email')
+    password = serializer.validated_data.get('password')
 
-      if user:
-        refresh = RefreshToken.for_user(user)
-        access_token = refresh.access_token
-        return Response(
-            {
-                "user": UserSerializer(user).data,
-                "token": {
-                    "refresh": str(refresh),
-                    "access": str(access_token),
-                },
-            },
-            status=status.HTTP_200_OK,
-        )
+    user = User.objects.filter(email=email).first()
+
+    if user and user.check_password(password):
+      refresh = RefreshToken.for_user(user)
+      access_token = refresh.access_token
+      return Response(
+          {
+              "user": UserSerializer(user).data,
+              "token": {
+                  "refresh": str(refresh),
+                  "access": str(access_token),
+              },
+          },
+          status=status.HTTP_200_OK,
+      )
 
     return Response(
         {"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED
@@ -85,7 +95,22 @@ class LoginView(APIView):
 
 class DocumentCreateView(APIView):
   permission_classes = [permissions.IsAuthenticated]
+  serializer_class = DocumentUploadSerializer
+  parser_classes = (MultiPartParser, FormParser)
 
+  @extend_schema(
+      request={
+          'multipart/form-data': {
+              'type': 'object',
+              'properties': {
+                  'title': {'type': 'string', 'description': 'Document title'},
+                  'file': {'type': 'string', 'format': 'binary'},
+              },
+              'required': ['title', 'file'],
+          }
+      },
+      responses={201: DocumentSerializer},
+  )
   def post(self, request):
     serializer = DocumentUploadSerializer(data=request.data)
 
@@ -109,11 +134,11 @@ class DocumentCreateView(APIView):
             DocumentSerializer(document).data,
             status=status.HTTP_201_CREATED,
         )
-      except Exception as e:
+      except Exception:
         document.delete()
-        logger.error(f"failed to processor {e}")
+        logger.exception("Error while processing uploaded document")
         return Response(
-            {'error': 'erreur lors de l\'enregistrement'},
+            {'error': 'erreur lors de l\'enregistrement', 'details': str(__import__('traceback').format_exc())},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -156,7 +181,9 @@ class DocumentDeleteView(APIView):
 
 class QAView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = QuestionSerializer
 
+    @extend_schema(request=QuestionSerializer)
     def post(self, request):
         serializer = QuestionSerializer(data=request.data)
 
